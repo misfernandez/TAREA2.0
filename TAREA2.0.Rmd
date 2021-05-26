@@ -1,0 +1,183 @@
+---
+title: "Proyecto 2"
+author: "Rafael Leyton y Misael Fernandez"
+date: "21-05-2021"
+output: github_document
+
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+
+##Cargamos las librerias que posiblemente seran utilizadas 
+
+ademas cargamos los datos y los visualizamos, para de este modo saber cuales serán utilizados 
+```{r}
+library(readxl)
+library(datasets)
+library(tidyverse)
+library(dplyr)
+library(tidyr)
+library(stringr)
+library(quanteda)
+library(ggplot2)
+library(utf8)
+
+load("/Users/pbenucci/Downloads/beats.RData")
+Datos= as.data.frame(beats)
+```
+##seleccionamos las columnas que nos serán utiles para el analisis
+
+estas columnas cuentan con datoss numericos, por lo que serán utiles para desarrollar los analisis, la unica columna
+con dato tipo char la cual se deja es la del nombre de la cancion, igual se encuentra la columna de tiempo
+la cual no se utilizará para el analisis, pero será una mauske herramienta misteriosa que nos ayudará más tarde a definir el largo de la lista.
+
+se realiza un summary para ver a que corresponden los datos
+
+se selecciona "BOOKET T" como temon para realizar las pruebas y se crea un data.frame solo con ese tema
+```{r}
+Datos_analisis= Datos[c(1,8:18,23,27)]
+##hay que pasar todo a minuscula para no cometer errores 
+##seleccionamos una canción base para realizar la recomendación 
+
+summary(Datos_analisis)
+
+cancion = "BOOKER T"
+
+Fila_comparacion = Datos_analisis[Datos_analisis$track_name == "BOOKER T",]
+```
+
+##limpieza de datos 
+
+como pudimos ver, todos los datos, menos tempo, loudness y duration_ms se encuentran en un rango de 0 a 1, para hacer
+una limpieza de datos se decidió realizarla con el Loudness, para de este modo tener una escucha más pareja para el oyente, evitando subir y bajar el volumen
+
+```{r}
+boxplot(Datos_analisis$loudness, horizontal = TRUE)
+
+boxplot.stats(Datos_analisis$loudness)
+```
+
+
+```{r primera limpieza}
+canciones_sinout <- Datos_analisis[Datos_analisis$loudness > -43.6419,]
+
+boxplot(canciones_sinout$loudness, horizontal = TRUE)
+
+boxplot.stats(canciones_sinout$loudness)
+```
+##para evitar repetir canciones, limpiamos las canciones repetidas
+```{r}
+canciones_sinout_unique<-unique(canciones_sinout)
+
+```
+
+
+##Con una primera limpieza queda sin Outliers
+
+##Procedemos a hacer un modelo de Kmedias para comenzar
+```{r}
+
+modelo_kme <- kmeans(canciones_sinout_unique[c(2:12)], centers = 3)
+
+canciones_sinout_unique$clus <- modelo_kme$cluster %>% as.factor()
+
+ggplot(canciones_sinout_unique, aes(danceability, energy, color=clus)) +
+  geom_point(alpha=0.5, show.legend = T) +
+  theme_bw()
+
+info_clus <- modelo_kme$centers
+
+info_clus
+
+```
+
+
+## Evolución suma de cuadrados intra-cluster en la medida que aumentamos el numero de k
+```{r evolucion sse}
+SSinterior <- numeric(15)
+for(k in 1:15){
+  modelo <-kmeans(canciones_sinout_unique[c(2:12)], centers = k)
+  SSinterior[k] <- modelo$tot.withinss
+}
+
+plot(SSinterior)
+
+```
+
+##Estadistico de Hopkins
+
+##terminar el clustering
+
+
+## dado que tuvimos dificultades para realizar el clustering, tomamos la desicion de crear un factor para realizar la seleccion 
+
+##Variable para seleccion de lista recomendada
+
+para la creación de la variable de comparación  se utilizaran las siguientes variables:
+
+##Danceability Energy Loudness Speechiness Acousticness Instrumentalness Liveness Valence Tempo
+
+Cada variable tendrá un mismo peso en la comparativa de canciones, la idea es seleccionar la que más se parezca en
+composicion auditiva, donde se utilizará un metodo matematico para evaluar la similitud entre canciones y ordenar las
+simililares con un factor ponderado, a menor facton ponderado, mayor es la similitud entre canciones.
+
+
+cada variable equivaldrá a un 11.1% del factor ponderado, este se calculará de la siguiente manera:
+
+sea A1 el atributo a comparar de la cancion seleccionada y A2 el atributo de la canción a  comparar
+tendremos que la diferencia porcentual entre estos atributos estará dada por el valor absoluto de 
+
+##(A1-A2)/A1
+
+Por lo tanto el ponderado final de la cancion a comparar será la sumatoria de la diferencia porcentual por el 
+factor ponderado, las canciones con menos ponderado final, serán las recomendadas en un comienzo.
+
+Se utiliza este metodo para no utilizar el artista o genero para de este modo, poder encontrar canciones nuevas o de artistas nuevos sin tanto renombre
+
+
+```{r}
+recomendadas <- canciones_sinout_unique[c(1,13,14)]
+obs <- nrow(canciones_sinout_unique) 
+factor<- 1/11
+
+for (i in 1:obs) {
+  aux_dance=(canciones_sinout_unique$danceability[i]-Fila_comparacion$danceability[1])/Fila_comparacion$danceability[1]
+  aux_energy=(canciones_sinout_unique$energy[i]-Fila_comparacion$energy[1])/Fila_comparacion$energy[1]
+  aux_loud=(canciones_sinout_unique$loudness[i]-Fila_comparacion$loudness[1])/Fila_comparacion$loudness[1]
+  aux_speech=(canciones_sinout_unique$speechiness[i]-Fila_comparacion$speechiness[1])/Fila_comparacion$speechiness[1]
+  aux_acoustic=(canciones_sinout_unique$acousticness[i]-Fila_comparacion$acousticness[1])/Fila_comparacion$acousticness[1]
+  aux_instr=(canciones_sinout_unique$instrumentalness[i]-Fila_comparacion$instrumentalness[1])/Fila_comparacion$instrumentalness[1]
+  aux_live=(canciones_sinout_unique$liveness[i]-Fila_comparacion$liveness[1])/Fila_comparacion$liveness[1]
+  aux_valence=(canciones_sinout_unique$valence[i]-Fila_comparacion$valence[1])/Fila_comparacion$valence[1]
+  aux_tempo=(canciones_sinout_unique$tempo[i]-Fila_comparacion$tempo[1])/Fila_comparacion$tempo[1]
+  aux_mode=(canciones_sinout_unique$mode[i]-Fila_comparacion$tempo[1])/Fila_comparacion$mode[1]
+  aux_key=(canciones_sinout_unique$key[i]-Fila_comparacion$tempo[1])/Fila_comparacion$key[1]
+  
+  recomendadas$ponderado[i] <- factor*abs(aux_dance)+factor*abs(aux_energy)+factor*abs(aux_loud)+factor*abs(aux_speech)+factor*abs(aux_acoustic)+factor*abs(aux_instr)+factor*abs(aux_live)+factor*abs(aux_valence)+factor*abs(aux_tempo)+factor*abs(aux_mode)+factor*abs(aux_key)
+  
+}
+
+```
+## Ordenamos las ponderadas de menor a mayor
+
+de este modo obtendremos las que tienen mayor similitud para luego, selecionar hasta que sumen 3 horas de reproduccion
+antes de esto, eliminamos los duplicados 
+```{r}
+recomendadas<-recomendadas[with(recomendadas, order(recomendadas$ponderado)),]
+
+duracion = 10800000
+aux=0
+j<-1
+final <- data.frame(artista = character(), nombre_cancion = character())
+while( aux < duracion) {
+  aux<-aux+recomendadas$duration_ms[j]
+  nueva.fila<-data.frame(artista = recomendadas$artist_name[j], nombre_cancion=recomendadas$track_name[j])
+  final=rbind(final,nueva.fila)
+  j=j+1
+}
+final
+```
